@@ -1,0 +1,95 @@
+name: Build and Deploy to AKS
+
+on:
+  push:
+    branches:
+      - development
+    paths:
+      - "mibanco-microservice/**"
+  pull_request:
+    branches:
+      - development
+    paths:
+      - "mibanco-microservice/**"
+  workflow_dispatch:
+
+env:
+  ACR_NAME: tuacrname # Reemplaza con el nombre de tu ACR
+  AKS_CLUSTER_NAME: tuaksname # Reemplaza con el nombre de tu AKS
+  AKS_RESOURCE_GROUP: tuaksresourcegroup # Reemplaza con el nombre de tu resource group
+  NAMESPACE: mibanco
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # Autenticarse con Azure
+      - name: "Az CLI login"
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # Configurar Docker para usar Azure Container Registry
+      - name: "Docker login to ACR"
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.ACR_NAME }}.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # Definir el tag de la imagen con el SHA del commit
+      - name: Set image tag
+        run: |
+          echo "IMAGE_TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
+      # Construir y publicar la imagen en ACR
+      - name: Build and push image to ACR
+        run: |
+          docker build . -t ${{ env.ACR_NAME }}.azurecr.io/mibanco-app:${{ env.IMAGE_TAG }}
+          docker push ${{ env.ACR_NAME }}.azurecr.io/mibanco-app:${{ env.IMAGE_TAG }}
+
+      # Configuración de Kubernetes
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ env.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+
+      # Asegurarse de que el namespace existe
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      # Reemplazar variables en los manifiestos
+      - name: Update kubernetes manifests
+        run: |
+          sed -i "s|\${ACR_NAME}|${{ env.ACR_NAME }}|g" kubernetes/deployment.yml
+          sed -i "s|\${IMAGE_TAG}|${{ env.IMAGE_TAG }}|g" kubernetes/deployment.yml
+
+      # Aplicar manifiestos de Kubernetes
+      - name: Deploy to AKS
+        run: |
+          kubectl apply -f kubernetes/deployment.yml -n ${{ env.NAMESPACE }}
+          kubectl apply -f kubernetes/service.yml -n ${{ env.NAMESPACE }}
+          kubectl apply -f kubernetes/hpa.yml -n ${{ env.NAMESPACE }}
+          kubectl apply -f kubernetes/ingress.yml -n ${{ env.NAMESPACE }}
+
+      # Verificar el despliegue
+      - name: Verify deployment
+        run: |
+          echo "Verificando pods:"
+          kubectl get pods -n ${{ env.NAMESPACE }}
+
+          echo "Verificando servicio:"
+          kubectl get svc -n ${{ env.NAMESPACE }}
+
+          echo "Verificando ingress:"
+          kubectl get ingress -n ${{ env.NAMESPACE }}
+
+          echo "Verificando HPA:"
+          kubectl get hpa -n ${{ env.NAMESPACE }}

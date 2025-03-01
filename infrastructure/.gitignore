@@ -1,0 +1,25 @@
+# Terraform & Terragrunt
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+.terragrunt-cache/
+
+# Variables sensibles
+*.tfvars
+*.tfvars.json
+
+# Archivos de logs y depuración
+crash.log
+crash.*.log
+
+# Archivos de salida
+*.out
+*.log
+*.bak
+
+# Directorios ocultos
+.DS_Store
+.idea/
+.vscode/
+*.iml
