@@ -15,13 +15,13 @@ on:
       region:
         description: "Azure region to deploy to"
         required: true
-        default: "region-eastus"
+        default: "eastus"
 
 env:
   TERRAFORM_VERSION: "1.8.1"
   TERRAGRUNT_VERSION: "0.63.6"
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-  REGION: ${{ github.event.inputs.region || 'region-eastus' }}
+  REGION: ${{ github.event.inputs.region || 'eastus' }}
 
 jobs:
   validate:
