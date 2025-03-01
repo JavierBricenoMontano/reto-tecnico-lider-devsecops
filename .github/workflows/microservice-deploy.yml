@@ -6,11 +6,6 @@ on:
       - development
     paths:
       - "mibanco-microservice/**"
-  pull_request:
-    branches:
-      - development
-    paths:
-      - "mibanco-microservice/**"
   workflow_dispatch:
 
 env:
