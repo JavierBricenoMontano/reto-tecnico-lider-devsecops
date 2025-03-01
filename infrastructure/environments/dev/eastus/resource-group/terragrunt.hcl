@@ -3,7 +3,6 @@ include {
   expose = true
 }
 
-
 terraform {
   source = "../../../../modules/resource-group"
 }
