@@ -22,17 +22,21 @@ env:
   TERRAGRUNT_VERSION: "0.63.6"
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
   REGION: ${{ github.event.inputs.region || 'eastus' }}
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID_DEV }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET_DEV }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_DEV }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID_DEV }}
 
 jobs:
-  init:
-    name: Init
+  validate:
+    name: Validate and Plan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
@@ -50,111 +54,42 @@ jobs:
       - name: Interact with Terragrunt
         run: terragrunt --version
 
-      - name: Set Terraform Path for Terragrunt
-        run: |
-          export TERRAGRUNT_TFPATH=$(which terraform)
-          echo "TERRAGRUNT_TFPATH=$TERRAGRUNT_TFPATH" >> $GITHUB_ENV
-
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Terragrunt init
         working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
         run: |
-          export TERRAGRUNT_TFPATH=$(which terraform)
-          terragrunt run-all init --terragrunt-log-level debug --terragrunt-non-interactive
-
-  validate:
-    name: Validate
-    needs: init
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-
-      - name: Install Terragrunt
-        run: |
-          wget https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
-          chmod +x terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-
-      - name: Interact with Terraform
-        run: terraform --version
-
-      - name: Interact with Terragrunt
-        run: terragrunt --version
-
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          terragrunt run-all init --terragrunt-non-interactive | tee terragrunt-init.log
 
       - name: Terragrunt Validate
         working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
         run: |
-          terragrunt run-all validate --terragrunt-include-external-dependencies --terragrunt-non-interactive
-
-  plan:
-    name: Plan
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-
-      - name: Install Terragrunt
-        run: |
-          wget https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
-          chmod +x terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-
-      - name: Interact with Terraform
-        run: terraform --version
-
-      - name: Interact with Terragrunt
-        run: terragrunt --version
-
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          terragrunt run-all validate --terragrunt-non-interactive | tee terragrunt-validate.log
 
       - name: Terragrunt Plan
         working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
         run: |
-          terragrunt run-all plan -out=tfplan --terragrunt-include-external-dependencies --terragrunt-non-interactive
+          terragrunt run-all plan --terragrunt-non-interactive | tee terragrunt-plan.log
 
-      - name: Save Plan
-        uses: actions/upload-artifact@v2
+      - name: Save Logs
+        uses: actions/upload-artifact@v4
         with:
-          name: terraform-plan
-          path: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/**/tfplan
+          name: terraform-logs
+          path: |
+            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-init.log
+            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-validate.log
+            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-plan.log
           retention-days: 1
-
   apply:
     name: Apply
-    needs: plan
+    needs: validate
     if: github.ref == 'refs/heads/development' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: development # Requiere aprobación manual en GitHub
+    environment: development
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
@@ -164,55 +99,29 @@ jobs:
           chmod +x terragrunt_linux_amd64
           sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
 
-      - name: Interact with Terraform
-        run: terraform --version
+      - name: Check Terraform Installation
+        run: |
+          which terraform || echo "Terraform not found!"
+          terraform version || echo "Failed to get Terraform version!"
 
       - name: Interact with Terragrunt
         run: terragrunt --version
 
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Azure CLI script
-        uses: azure/CLI@v1
-        with:
-          inlineScript: |
-            az account show
-            az group list
-
-      - name: Download Plan
-        uses: actions/download-artifact@v2
-        with:
-          name: terraform-plan
-          path: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
+      - name: Terragrunt Init
+        working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
+        run: |
+          terragrunt run-all init -reconfigure --terragrunt-non-interactive | tee terragrunt-init.log
 
       - name: Terragrunt Apply
         working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
         run: |
-          terragrunt run-all apply --terragrunt-include-external-dependencies --terragrunt-non-interactive
+          terragrunt run-all apply --terragrunt-non-interactive | tee terragrunt-apply.log
 
-      - name: Export Outputs
-        working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/outputs
-
-          # Obtener outputs de ACR
-          cd acr
-          terragrunt output -json > $GITHUB_WORKSPACE/outputs/acr.json
-
-          # Obtener outputs de AKS
-          cd ../aks
-          terragrunt output -json > $GITHUB_WORKSPACE/outputs/aks.json
-
-          # Obtener outputs de Resource Group
-          cd ../resource-group
-          terragrunt output -json > $GITHUB_WORKSPACE/outputs/resource_group.json
-
-      - name: Save Outputs
-        uses: actions/upload-artifact@v2
+      - name: Save Logs
+        uses: actions/upload-artifact@v4
         with:
-          name: terraform-outputs
-          path: outputs
-          retention-days: 7
+          name: terraform-apply-logs
+          path: |
+            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-init.log
+            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-apply.log
+          retention-days: 1
