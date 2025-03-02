@@ -9,10 +9,10 @@ on:
   workflow_dispatch:
 
 env:
-  ACR_NAME: tuacrname # Reemplaza con el nombre de tu ACR
-  AKS_CLUSTER_NAME: tuaksname # Reemplaza con el nombre de tu AKS
-  AKS_RESOURCE_GROUP: tuaksresourcegroup # Reemplaza con el nombre de tu resource group
-  NAMESPACE: mibanco
+  ACR_NAME: mibancodevacr
+  AKS_CLUSTER_NAME: aks-mibanco-dev
+  AKS_RESOURCE_GROUP: rg-mibanco-dev-eastus
+  NAMESPACE: mibanco-app-ns
 
 jobs:
   build-and-deploy:

@@ -10,7 +10,6 @@ dependency "resource_group" {
     name     = "mock-rg"
     location = "eastus"
   }
-
 }
 
 terraform {

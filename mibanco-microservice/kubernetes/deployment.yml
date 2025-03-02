@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mibanco-app
-  namespace: mibanco
 spec:
   replicas: 2
   selector:
