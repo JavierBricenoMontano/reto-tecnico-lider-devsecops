@@ -9,6 +9,13 @@ dependency "resource_group" {
 
 dependency "acr" {
   config_path = "../acr"
+
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  mock_outputs = {
+    name     = "mock-name"
+    location = "mock-location"
+    id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/my-rg/providers/Microsoft.ContainerRegistry/registries/myacr"
+  }
 }
 
 terraform {

@@ -5,6 +5,11 @@ include {
 
 dependency "resource_group" {
   config_path = "../resource-group"
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  mock_outputs = {
+    name     = "mock-rg"
+    location = "eastus"
+  }
 }
 
 terraform {

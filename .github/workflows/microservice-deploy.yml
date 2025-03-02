@@ -9,10 +9,10 @@ on:
   workflow_dispatch:
 
 env:
-  ACR_NAME: tuacrname # Reemplaza con el nombre de tu ACR
-  AKS_CLUSTER_NAME: tuaksname # Reemplaza con el nombre de tu AKS
-  AKS_RESOURCE_GROUP: tuaksresourcegroup # Reemplaza con el nombre de tu resource group
-  NAMESPACE: mibanco
+  ACR_NAME: mibancodevacr
+  AKS_CLUSTER_NAME: aks-mibanco-dev
+  AKS_RESOURCE_GROUP: rg-mibanco-devops-challenge-dev-eastus
+  NAMESPACE: mibanco-app-ns
 
 jobs:
   build-and-deploy:
@@ -31,8 +31,8 @@ jobs:
         uses: azure/docker-login@v1
         with:
           login-server: ${{ env.ACR_NAME }}.azurecr.io
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+          username: ${{ secrets.ACR_USERNAME_DEV }}
+          password: ${{ secrets.ACR_PASSWORD_DEV }}
 
       # Definir el tag de la imagen con el SHA del commit
       - name: Set image tag
@@ -41,6 +41,7 @@ jobs:
 
       # Construir y publicar la imagen en ACR
       - name: Build and push image to ACR
+        working-directory: mibanco-microservice
         run: |
           docker build . -t ${{ env.ACR_NAME }}.azurecr.io/mibanco-app:${{ env.IMAGE_TAG }}
           docker push ${{ env.ACR_NAME }}.azurecr.io/mibanco-app:${{ env.IMAGE_TAG }}
@@ -62,12 +63,14 @@ jobs:
 
       # Reemplazar variables en los manifiestos
       - name: Update kubernetes manifests
+        working-directory: mibanco-microservice
         run: |
           sed -i "s|\${ACR_NAME}|${{ env.ACR_NAME }}|g" kubernetes/deployment.yml
           sed -i "s|\${IMAGE_TAG}|${{ env.IMAGE_TAG }}|g" kubernetes/deployment.yml
 
       # Aplicar manifiestos de Kubernetes
       - name: Deploy to AKS
+        working-directory: mibanco-microservice
         run: |
           kubectl apply -f kubernetes/deployment.yml -n ${{ env.NAMESPACE }}
           kubectl apply -f kubernetes/service.yml -n ${{ env.NAMESPACE }}
