@@ -9,7 +9,7 @@ on:
 
 jobs:
   deploy:
-    uses: tu-org/tu-repo/.github/workflows/reusable-build-deploy.yml@main
+    uses: ./.github/workflows/microservice-deploy-template.yml
     with:
       microservice_path: "mibanco-microservice"
       acr_name: "mibancodevacr"
