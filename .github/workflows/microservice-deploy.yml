@@ -3,7 +3,7 @@ name: Build and Deploy to AKS
 on:
   push:
     branches:
-      - development
+      - development12
     paths:
       - "mibanco-microservice/**"
   workflow_dispatch:

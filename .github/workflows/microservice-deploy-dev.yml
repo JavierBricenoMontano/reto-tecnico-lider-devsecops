@@ -1,0 +1,22 @@
+name: Deploy Microservice
+
+on:
+  push:
+    branches:
+      - development
+    paths:
+      - "mibanco-microservice/**"
+
+jobs:
+  deploy:
+    uses: tu-org/tu-repo/.github/workflows/reusable-build-deploy.yml@main
+    with:
+      microservice_path: "mibanco-microservice"
+      acr_name: "mibancodevacr"
+      aks_cluster_name: "aks-mibanco-dev"
+      aks_resource_group: "rg-mibanco-devops-challenge-dev-eastus"
+      namespace: "mibanco-app-ns"
+    secrets:
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME_DEV }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD_DEV }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
