@@ -1,0 +1,127 @@
+name: Deploy Microservice Template
+
+on:
+  workflow_call:
+    inputs:
+      microservice_path:
+        description: "Ruta del microservicio"
+        required: true
+        type: string
+      acr_name:
+        description: "Nombre del Azure Container Registry"
+        required: true
+        type: string
+      aks_cluster_name:
+        description: "Nombre del AKS"
+        required: true
+        type: string
+      aks_resource_group:
+        description: "Grupo de recursos del AKS"
+        required: true
+        type: string
+      namespace:
+        description: "Namespace de Kubernetes"
+        required: true
+        type: string
+    secrets:
+      ACR_USERNAME:
+        required: true
+      ACR_PASSWORD:
+        required: true
+      AZURE_CREDENTIALS:
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build and Push
+    outputs:
+      image_tag: ${{ steps.set_image_tag.outputs.IMAGE_TAG }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: "Docker login to ACR"
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ inputs.acr_name }}.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: set_image_tag
+        run: |
+          IMAGE_TAG=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          docker build . -t ${{ inputs.acr_name }}.azurecr.io/mibanco-app:${{ env.IMAGE_TAG }}
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Scan image with Trivy
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          trivy image --exit-code 1 --severity CRITICAL ${{ inputs.acr_name }}.azurecr.io/mibanco-app:${{ env.IMAGE_TAG }}
+
+      - name: Push Docker image to ACR
+        run: |
+          docker push ${{ inputs.acr_name }}.azurecr.io/mibanco-app:${{ env.IMAGE_TAG }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    needs: build
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: "Azure CLI login"
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ inputs.aks_resource_group }}
+          cluster-name: ${{ inputs.aks_cluster_name }}
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace ${{ inputs.namespace }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Update Kubernetes manifests
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          sed -i "s|\${ACR_NAME}|${{ inputs.acr_name }}|g" kubernetes/deployment.yml
+          sed -i "s|\${IMAGE_TAG}|${{ needs.build.outputs.image_tag }}|g" kubernetes/deployment.yml
+
+      - name: Deploy to AKS
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          kubectl apply -f kubernetes/deployment.yml -n ${{ inputs.namespace }}
+          kubectl apply -f kubernetes/service.yml -n ${{ inputs.namespace }}
+          kubectl apply -f kubernetes/hpa.yml -n ${{ inputs.namespace }}
+          kubectl apply -f kubernetes/ingress.yml -n ${{ inputs.namespace }}
+
+      - name: Wait for Deployment
+        run: |
+          kubectl rollout status deployment/mibanco-app -n ${{ inputs.namespace }}
+
+      - name: Verify deployment
+        run: |
+          echo "Pods:"
+          kubectl get pods -n ${{ inputs.namespace }}
+          echo "Service:"
+          kubectl get svc -n ${{ inputs.namespace }}
+          echo "Ingress:"
+          kubectl get ingress -n ${{ inputs.namespace }}
+          echo "HPA:"
+          kubectl get hpa -n ${{ inputs.namespace }}
