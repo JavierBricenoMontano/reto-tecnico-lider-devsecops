@@ -1,31 +1,33 @@
-name: Deploy Infrastructure
+name: Deploy Infrastructure (Reusable)
 
 on:
-  push:
-    branches:
-      - development12
-    paths:
-      - "infrastructure/**"
-  workflow_dispatch:
+  workflow_call:
     inputs:
       environment:
         description: "Environment to deploy to"
         required: true
-        default: "dev"
+        type: string
       region:
         description: "Azure region to deploy to"
         required: true
-        default: "eastus"
+        type: string
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_CLIENT_SECRET:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
 
 env:
   TERRAFORM_VERSION: "1.8.1"
   TERRAGRUNT_VERSION: "0.63.6"
-  ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-  REGION: ${{ github.event.inputs.region || 'eastus' }}
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID_DEV }}
-  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET_DEV }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_DEV }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID_DEV }}
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
 jobs:
   validate:
@@ -54,18 +56,18 @@ jobs:
       - name: Interact with Terragrunt
         run: terragrunt --version
 
-      - name: Terragrunt init
-        working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
+      - name: Terragrunt Init
+        working-directory: infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}
         run: |
           terragrunt run-all init --terragrunt-non-interactive | tee terragrunt-init.log
 
       - name: Terragrunt Validate
-        working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
+        working-directory: infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}
         run: |
           terragrunt run-all validate --terragrunt-non-interactive | tee terragrunt-validate.log
 
       - name: Terragrunt Plan
-        working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
+        working-directory: infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}
         run: |
           terragrunt run-all plan --terragrunt-non-interactive | tee terragrunt-plan.log
 
@@ -74,16 +76,16 @@ jobs:
         with:
           name: terraform-logs
           path: |
-            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-init.log
-            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-validate.log
-            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-plan.log
+            infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}/terragrunt-init.log
+            infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}/terragrunt-validate.log
+            infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}/terragrunt-plan.log
           retention-days: 1
+
   apply:
     name: Apply
     needs: validate
-    if: github.ref == 'refs/heads/development' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: development
+    environment: ${{ inputs.environment }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -108,12 +110,12 @@ jobs:
         run: terragrunt --version
 
       - name: Terragrunt Init
-        working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
+        working-directory: infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}
         run: |
           terragrunt run-all init -reconfigure --terragrunt-non-interactive | tee terragrunt-init.log
 
       - name: Terragrunt Apply
-        working-directory: infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}
+        working-directory: infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}
         run: |
           terragrunt run-all apply --terragrunt-non-interactive | tee terragrunt-apply.log
 
@@ -122,6 +124,6 @@ jobs:
         with:
           name: terraform-apply-logs
           path: |
-            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-init.log
-            infrastructure/environments/${{ env.ENVIRONMENT }}/${{ env.REGION }}/terragrunt-apply.log
+            infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}/terragrunt-init.log
+            infrastructure/environments/${{ inputs.environment }}/${{ inputs.region }}/terragrunt-apply.log
           retention-days: 1
