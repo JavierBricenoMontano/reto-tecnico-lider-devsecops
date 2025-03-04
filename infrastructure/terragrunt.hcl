@@ -13,6 +13,8 @@ remote_state {
   }
 }
 
+
+
 # Incluir todas las variables de entorno y región
 locals {
   # Cargar variables de entorno
