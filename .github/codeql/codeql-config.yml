@@ -1,58 +1,12 @@
-# Configuración de CodeQL optimizada para JavaScript/Node.js
-# Este archivo personaliza el comportamiento de GitHub CodeQL para MiBanco
+name: "MiBanco Security Config"
 
-name: "MiBanco Node.js Security Configuration"
-
-# Configuración de queries a utilizar
-queries:
-  - uses: javascript/ql/src/codeql-suites/javascript-security-extended.qls
-  - uses: javascript/ql/src/codeql-suites/javascript-security-and-quality.qls
-
-# Rutas específicas a incluir en el análisis
-paths:
-  - src/**
-  - lib/**
-  - app/**
-  - mibanco-microservice/src/**
-
-# Rutas a excluir del análisis
 paths-ignore:
-  # Dependencias y builds
-  - node_modules/**
-  - dist/**
-  - build/**
-  - coverage/**
-  
-  # Archivos minificados
+  - "node_modules/**"
+  - "dist/**" 
+  - "build/**"
+  - "coverage/**"
   - "**/*.min.js"
-  - "**/*.bundle.js"
-  
-  # Tests
-  - test/**
-  - tests/**
-  - spec/**
-  - __tests__/**
+  - "test/**"
+  - "tests/**"
   - "**/*.test.js"
   - "**/*.spec.js"
-  
-  # Archivos de configuración
-  - ".eslintrc.*.js"
-  - "webpack.*.js"
-  - "rollup.*.js"
-  - "**/*.config.js"
-  
-  # Documentación y metadatos
-  - "**/*.md"
-  - "**/*.txt"
-  - "**/*.json"
-  - "**/*.yml"
-  - "**/*.yaml"
-  - .git/**
-  - .github/**
-  - infrastructure/**
-  - terraform/**
-  - docs/**
-  - documentation/**
-
-# Configuración de paquetes externos (para reducir ruido)
-disable-default-path-filters: false

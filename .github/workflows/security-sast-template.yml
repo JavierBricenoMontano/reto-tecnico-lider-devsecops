@@ -68,7 +68,8 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: javascript
-          config-file: ${{ inputs.config_file_path && format('{0}', inputs.config_file_path) || '.github/codeql/codeql-config.yml' }}
+          # Usar configuración por defecto inicialmente
+          # config-file: ${{ inputs.config_file_path && format('{0}', inputs.config_file_path) || '.github/codeql/codeql-config.yml' }}
           # Configuración específica para repositorios públicos
           tools: latest
           
