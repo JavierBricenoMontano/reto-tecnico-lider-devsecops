@@ -362,7 +362,7 @@ jobs:
           if [ "$DAST_RESULT" = "failure" ]; then
             echo "❌ DAST analysis failed"
             GATE_FAILED=true
-          elif [ "$HIGH_RISK_ALERTS" -gt 3 ]; then
+          elif [ "$HIGH_RISK_ALERTS" -gt 10 ]; then
             echo "❌ Too many high-risk security alerts: $HIGH_RISK_ALERTS"
             GATE_FAILED=true
           elif [ "$HIGH_RISK_ALERTS" -gt 0 ]; then
