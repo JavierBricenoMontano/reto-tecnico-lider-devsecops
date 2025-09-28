@@ -1,25 +1,26 @@
-# 🛡️ Plantillas de Seguridad GHAS para MiBanco
+# �️ Documentación Técnica - Security Templates
 
-Este repositorio contiene plantillas completas para análisis de seguridad utilizando GitHub Advanced Security (GHAS), específicamente diseñadas para el microservicio de MiBanco.
+[![Template Version](https://img.shields.io/badge/Version-1.0.0-blue)](#)
+[![GHAS Integration](https://img.shields.io/badge/GHAS-Native-green)](#)
+[![Maintenance](https://img.shields.io/badge/Maintained-Yes-brightgreen)](#)
 
-## 📋 Índice
+## 📋 Índice de Templates
 
-- [Descripción General](#descripción-general)
-- [Componentes](#componentes)
-- [Configuración](#configuración)
-- [Uso](#uso)
-- [Tipos de Análisis](#tipos-de-análisis)
-- [Resultados y Reportes](#resultados-y-reportes)
-- [Troubleshooting](#troubleshooting)
+| Template                     | Propósito                   | Activación      | Duración Promedio |
+| ---------------------------- | --------------------------- | --------------- | ----------------- |
+| `security-sast-template.yml` | Análisis estático de código | Todos los PRs   | 3-5 min           |
+| `security-sca-template.yml`  | Análisis de dependencias    | Todos los PRs   | 1-2 min           |
+| `security-dast-template.yml` | Análisis dinámico           | PRs a `release` | 8-12 min          |
+| `security-analysis.yml`      | Orquestador principal       | Automático      | Variable          |
 
 ## 🎯 Descripción General
 
-Las plantillas implementan un flujo de seguridad completo que incluye:
+Las plantillas implementan un flujo de seguridad completo con **GitHub Advanced Security (GHAS)** que incluye:
 
-- **SAST (Static Application Security Testing)**: Análisis de código fuente para detectar vulnerabilidades
-- **SCA (Software Composition Analysis)**: Análisis de dependencias para detectar vulnerabilidades conocidas
-- **Análisis de Licencias**: Verificación de compatibilidad de licencias de dependencias
-- **Security Gates**: Bloqueo automático de despliegues inseguros
+- **SAST (Static Application Security Testing)**: CodeQL + Semgrep con reglas OWASP
+- **SCA (Software Composition Analysis)**: Dependency Review + npm audit
+- **DAST (Dynamic Application Security Testing)**: OWASP ZAP para PRs a release
+- **Security Gates**: Bloqueo automático según umbrales configurados
 
 ## 🔧 Componentes
 
