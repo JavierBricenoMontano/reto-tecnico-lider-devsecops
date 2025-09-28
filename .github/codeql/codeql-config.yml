@@ -3,47 +3,45 @@
 
 name: "MiBanco Node.js Security Configuration"
 
-# Configuración específica para JavaScript/Node.js
+# Configuración de queries a utilizar
 queries:
-  - name: security-extended
-    uses: 
-      - javascript/ql/src/codeql-suites/javascript-security-extended.qls
-      - javascript/ql/src/codeql-suites/javascript-security-and-quality.qls
+  - uses: javascript/ql/src/codeql-suites/javascript-security-extended.qls
+  - uses: javascript/ql/src/codeql-suites/javascript-security-and-quality.qls
 
-# Configuración optimizada para Node.js/Express
-javascript:
-  # Queries específicas de seguridad para Node.js
-  queries:
-    - uses: javascript/ql/src/codeql-suites/javascript-security-extended.qls
-    - uses: javascript/ql/src/codeql-suites/javascript-security-and-quality.qls
-  
-  # Excluir archivos innecesarios para el análisis
-  paths-ignore:
-    - node_modules/**
-    - dist/**
-    - build/**
-    - coverage/**
-    - "**/*.min.js"
-    - "**/*.bundle.js"
-    - test/**
-    - tests/**
-    - spec/**
-    - __tests__/**
-    - "**/*.test.js"
-    - "**/*.spec.js"
-    - ".eslintrc.*.js"
-    - "webpack.*.js"
-    - "rollup.*.js"
-
-# Rutas específicas a incluir
+# Rutas específicas a incluir en el análisis
 paths:
   - src/**
   - lib/**
   - app/**
   - mibanco-microservice/src/**
 
-# Rutas a excluir globalmente
+# Rutas a excluir del análisis
 paths-ignore:
+  # Dependencias y builds
+  - node_modules/**
+  - dist/**
+  - build/**
+  - coverage/**
+  
+  # Archivos minificados
+  - "**/*.min.js"
+  - "**/*.bundle.js"
+  
+  # Tests
+  - test/**
+  - tests/**
+  - spec/**
+  - __tests__/**
+  - "**/*.test.js"
+  - "**/*.spec.js"
+  
+  # Archivos de configuración
+  - ".eslintrc.*.js"
+  - "webpack.*.js"
+  - "rollup.*.js"
+  - "**/*.config.js"
+  
+  # Documentación y metadatos
   - "**/*.md"
   - "**/*.txt"
   - "**/*.json"
@@ -55,15 +53,6 @@ paths-ignore:
   - terraform/**
   - docs/**
   - documentation/**
-  - "**/*.config.js"
 
-# Configuración específica para reducir falsos positivos en Node.js
+# Configuración de paquetes externos (para reducir ruido)
 disable-default-path-filters: false
-
-# Configuración avanzada para mejor rendimiento
-threaded-queries: true
-external-data: true
-
-# Configuración específica para Express.js y APIs REST
-feature-flags:
-  - javascript-experimental-atm-modeling
