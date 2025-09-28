@@ -75,7 +75,6 @@ jobs:
       # Análisis DAST con OWASP ZAP Baseline
       - name: Run OWASP ZAP Baseline Scan
         if: ${{ inputs.scan_type == 'baseline' }}
-        continue-on-error: true  # Continuar aunque falle la subida interna del artefacto
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: ${{ inputs.target_url }}
@@ -83,7 +82,6 @@ jobs:
           cmd_options: '-a -j -m ${{ inputs.timeout }} -T 5'
           allow_issue_writing: false
           fail_action: false
-          artifact_name: 'dast-baseline-results'
 
       # Análisis DAST con OWASP ZAP Full Scan (más completo pero más lento)
       - name: Run OWASP ZAP Full Scan
@@ -198,82 +196,51 @@ jobs:
         run: |
           echo "📊 Analizando resultados del análisis DAST..."
           
-          # Crear directorios de resultados
-          mkdir -p dast-results
+          # Inicializar contadores
+          HIGH_ALERTS=0
+          MEDIUM_ALERTS=0
+          LOW_ALERTS=0
+          TOTAL_ALERTS=0
           
-          # Basado en el output del log, sabemos que hubo:
-          # FAIL-NEW: 0, WARN-NEW: 7, PASS: 65
-          HIGH_ALERTS=0      # No hubo vulnerabilidades críticas
-          MEDIUM_ALERTS=0    # No se reportaron vulnerabilidades medias
-          LOW_ALERTS=7       # 7 alertas de advertencia encontradas
-          TOTAL_ALERTS=7
-          
-          # Copiar archivos de resultados si existen
-          [ -f "report_html.html" ] && cp report_html.html dast-results/
-          [ -f "report_json.json" ] && cp report_json.json dast-results/
-          [ -f "report_md.md" ] && cp report_md.md dast-results/
+          # Buscar archivo de reportes de ZAP
+          if [ -f "report_html.html" ]; then
+            echo "✅ Reporte HTML encontrado"
             
             # Extraer métricas básicas del reporte HTML (método simple)
             HIGH_ALERTS=$(grep -o "High (Confidence: High)" report_html.html | wc -l || echo "0")
             MEDIUM_ALERTS=$(grep -o "Medium (Confidence: Medium)" report_html.html | wc -l || echo "0")
             LOW_ALERTS=$(grep -o "Low (Confidence: Low)" report_html.html | wc -l || echo "0")
+            
+            TOTAL_ALERTS=$((HIGH_ALERTS + MEDIUM_ALERTS + LOW_ALERTS))
+          fi
           
-          # Configurar outputs
+          # Buscar archivo JSON si existe
+          if [ -f "report_json.json" ]; then
+            echo "✅ Reporte JSON encontrado"
+            # Usar jq para análisis más preciso si está disponible
+            if command -v jq &> /dev/null; then
+              HIGH_ALERTS=$(jq '[.site[].alerts[] | select(.riskdesc | contains("High"))] | length' report_json.json 2>/dev/null || echo "$HIGH_ALERTS")
+              MEDIUM_ALERTS=$(jq '[.site[].alerts[] | select(.riskdesc | contains("Medium"))] | length' report_json.json 2>/dev/null || echo "$MEDIUM_ALERTS")
+              TOTAL_ALERTS=$(jq '[.site[].alerts[]] | length' report_json.json 2>/dev/null || echo "$TOTAL_ALERTS")
+            fi
+          fi
+          
           echo "high_risk_alerts=$HIGH_ALERTS" >> $GITHUB_OUTPUT
           echo "medium_risk_alerts=$MEDIUM_ALERTS" >> $GITHUB_OUTPUT
           echo "total_alerts=$TOTAL_ALERTS" >> $GITHUB_OUTPUT
           
-          # Generar reporte detallado basado en los resultados reales
+          # Generar reporte resumido
           cat > dast-summary.md << EOF
           ## 🔍 DAST Analysis Summary
           
           **Target URL:** ${{ inputs.target_url }}
           **Scan Type:** ${{ inputs.scan_type }}
           **Scan Duration:** ${{ inputs.timeout }} minutes
-          **Status:** ✅ Scan completed successfully
           
           **Security Alerts Found:**
           - 🚨 High Risk: $HIGH_ALERTS
           - ⚠️ Medium Risk: $MEDIUM_ALERTS  
-          - ℹ️ Low/Info Risk: $LOW_ALERTS
-          - ✅ Total Passed: 65
-          
-          ### 📋 Alert Details (WARN-NEW findings):
-          1. **X-Content-Type-Options Header Missing** [10021]
-             - Impact: Potential MIME type sniffing attacks
-             - URL: http://74.179.229.101/
-             
-          2. **Server Leaks Information via X-Powered-By Header** [10037]
-             - Impact: Information disclosure about server technology
-             - Affected URLs: 4 (including main site and missing resources)
-             
-          3. **Storable and Cacheable Content** [10049]
-             - Impact: Content caching behavior may expose sensitive data
-             - Affected URLs: 4
-             
-          4. **CSP: Failure to Define Directive with No Fallback** [10055]
-             - Impact: Content Security Policy gaps
-             - Affected URLs: 3 (404 pages)
-             
-          5. **Permissions Policy Header Not Set** [10063]
-             - Impact: Missing modern security headers
-             - Affected URLs: 3
-             
-          6. **Insufficient Site Isolation Against Spectre Vulnerability** [90004]
-             - Impact: Side-channel attack mitigation missing
-             - URL: http://74.179.229.101/
-             
-          7. **Sec-Fetch-Dest Header is Missing** [90005]
-             - Impact: Missing fetch metadata request headers
-             - Affected URLs: Multiple
-          
-          ### 🛡️ Security Recommendations:
-          - Add X-Content-Type-Options: nosniff header
-          - Remove or customize X-Powered-By header  
-          - Implement proper Content Security Policy
-          - Add Permissions-Policy header
-          - Configure cache-control headers appropriately
-          - Implement Sec-Fetch-* headers for better request isolation
+          - ℹ️ Low Risk: $LOW_ALERTS
           - 📊 Total Alerts: $TOTAL_ALERTS
           
           **Analysis Tools Used:**
@@ -330,35 +297,30 @@ jobs:
               });
             }
 
-      # Upload de artefactos con nombre único
+      # Upload de artefactos
       - name: Upload DAST Analysis Results
         if: ${{ inputs.upload_results }}
         uses: actions/upload-artifact@v4
         with:
-          name: dast-security-results-${{ github.run_number }}-${{ github.run_attempt }}
+          name: dast-security-results-${{ github.run_id }}
           path: |
             dast-summary.md
-            dast-results/
             report_html.html
             report_json.json
-            report_md.md
+            report_sarif.sarif
             .zap/
           retention-days: 30
-          if-no-files-found: warn
 
       # Security gate para DAST
       - name: DAST Security Gate
         run: |
           HIGH_ALERTS="${{ steps.analyze_results.outputs.high_risk_alerts }}"
           MEDIUM_ALERTS="${{ steps.analyze_results.outputs.medium_risk_alerts }}"
-          TOTAL_ALERTS="${{ steps.analyze_results.outputs.total_alerts }}"
           
           echo "🚪 DAST Security Gate Analysis:"
           echo "  - High risk alerts: $HIGH_ALERTS"
-          echo "  - Medium risk alerts: $MEDIUM_ALERTS"  
-          echo "  - Total alerts: $TOTAL_ALERTS"
+          echo "  - Medium risk alerts: $MEDIUM_ALERTS"
           
-          # Solo bloquear si hay vulnerabilidades críticas (High Risk)
           if [ "$HIGH_ALERTS" -gt 3 ]; then
             echo "❌ DAST Security Gate Failed: Too many high-risk vulnerabilities ($HIGH_ALERTS > 3)"
             echo "Please fix high-risk security issues before releasing to production"
@@ -366,11 +328,7 @@ jobs:
           elif [ "$HIGH_ALERTS" -gt 0 ]; then
             echo "⚠️ DAST Security Gate Warning: $HIGH_ALERTS high-risk vulnerabilities found"
             echo "Consider addressing these issues before release"
+            # No exit here, just warning for 1-3 high-risk issues
           else
             echo "✅ DAST Security Gate Passed: No critical security issues found"
-            if [ "$TOTAL_ALERTS" -gt 0 ]; then
-              echo "ℹ️ Note: $TOTAL_ALERTS informational/low-risk alerts found (acceptable for release)"
-            fi
           fi
-          
-          echo "🎯 Current scan results: 0 critical, 7 informational alerts - RELEASE APPROVED"
