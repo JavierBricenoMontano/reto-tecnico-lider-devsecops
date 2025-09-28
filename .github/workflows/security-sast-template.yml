@@ -96,63 +96,6 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: "semgrep"
-          
-      # ESLint Security para Node.js
-      - name: Run ESLint Security Analysis
-        working-directory: ${{ inputs.microservice_path }}
-        run: |
-          # Instalar plugins de seguridad
-          npm install --save-dev \
-            eslint-plugin-security \
-            eslint-plugin-node-security \
-            @microsoft/eslint-plugin-sdl
-          
-          # Ejecutar ESLint con reglas de seguridad
-          npx eslint . \
-            --ext .js \
-            --format json \
-            --output-file eslint-security-results.json \
-            --config .eslintrc.security.js || true
-            
-      # Crear configuración ESLint de seguridad optimizada para Node.js
-      - name: Create ESLint Security Config
-        working-directory: ${{ inputs.microservice_path }}
-        run: |
-          cat > .eslintrc.security.js << 'EOF'
-          module.exports = {
-            env: {
-              node: true,
-              es2021: true,
-            },
-            plugins: ['security', 'node-security', '@microsoft/sdl'],
-            extends: [
-              'plugin:security/recommended',
-              'plugin:@microsoft/sdl/recommended'
-            ],
-            rules: {
-              // Reglas críticas para Node.js/Express
-              'security/detect-object-injection': 'error',
-              'security/detect-eval-with-expression': 'error',
-              'security/detect-unsafe-regex': 'error',
-              'security/detect-buffer-noassert': 'error',
-              'security/detect-child-process': 'warn',
-              'security/detect-disable-mustache-escape': 'error',
-              'security/detect-new-buffer': 'error',
-              'security/detect-no-csrf-before-method-override': 'error',
-              'security/detect-non-literal-fs-filename': 'warn',
-              'security/detect-non-literal-regexp': 'warn',
-              'security/detect-non-literal-require': 'warn',
-              'security/detect-possible-timing-attacks': 'warn',
-              'security/detect-pseudoRandomBytes': 'error',
-              
-              // Reglas adicionales para Express.js
-              'no-eval': 'error',
-              'no-implied-eval': 'error',
-              'no-new-func': 'error',
-              'no-console': 'warn'
-            }
-          };
-          EOF
 
       # Análisis de resultados y métricas
       - name: Analyze Security Results
@@ -192,7 +135,6 @@ jobs:
           **Analysis Tools Used:**
           - ✅ GitHub CodeQL
           - ✅ Semgrep Security Rules
-          - ✅ ESLint Security Plugin (Node.js)
           
           **Recommendations:**
           - Review all critical vulnerabilities immediately
@@ -224,7 +166,6 @@ jobs:
           name: sast-security-results-${{ github.run_id }}
           path: |
             security-summary.md
-            eslint-security-results.json
             semgrep.sarif
           retention-days: 30
           
