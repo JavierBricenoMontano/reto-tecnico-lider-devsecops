@@ -76,35 +76,6 @@ jobs:
         with:
           config-file: '.github/dependency-review-config.yml'
           comment-summary-in-pr: true
-          fail-on-severity: high
-          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
-          deny-licenses: GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0
-
-      # Crear configuración de Dependency Review si no existe
-      - name: Create Dependency Review Config
-        run: |
-          mkdir -p .github
-          cat > .github/dependency-review-config.yml << 'EOF'
-          fail_on_severity: 'high'
-          fail_on_scopes:
-            - 'runtime'
-            - 'development'
-          allow_licenses:
-            - 'MIT'
-            - 'Apache-2.0'
-            - 'BSD-2-Clause'
-            - 'BSD-3-Clause'
-            - 'ISC'
-            - 'Unlicense'
-          deny_licenses:
-            - 'GPL-2.0'
-            - 'GPL-3.0'
-            - 'AGPL-1.0'
-            - 'AGPL-3.0'
-            - 'CC-BY-SA-4.0'
-          allow_ghsas:
-            - 'GHSA-abcd-1234-5679' # Ejemplo: permitir GHSA específicos si es necesario
-          EOF
 
       # Análisis con npm audit para Node.js
       - name: NPM Security Audit
