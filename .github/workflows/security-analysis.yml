@@ -6,9 +6,6 @@ on:
       - development
       - release
       - main
-    paths:
-      - 'mibanco-microservice/**'
-      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       run_sast:
