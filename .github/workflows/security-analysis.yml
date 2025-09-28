@@ -3,7 +3,7 @@ name: Security Analysis Workflow
 on:
   pull_request:
     branches:
-      - develop
+      - development
       - release
       - main
     paths:
