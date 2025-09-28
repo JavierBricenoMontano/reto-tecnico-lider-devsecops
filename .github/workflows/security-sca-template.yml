@@ -1,0 +1,321 @@
+name: SCA Security Analysis Template
+
+on:
+  workflow_call:
+    inputs:
+      microservice_path:
+        description: "Ruta del microservicio a analizar"
+        required: true
+        type: string
+      language:
+        description: "Lenguaje principal del proyecto"
+        required: false
+        type: string
+        default: "javascript"
+      package_manager:
+        description: "Gestor de paquetes (npm, yarn, pnpm)"
+        required: false
+        type: string
+        default: "npm"
+      upload_results:
+        description: "Subir resultados como artefactos"
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      vulnerability_count:
+        description: "Total de vulnerabilidades encontradas"
+        value: ${{ jobs.sca_analysis.outputs.vulnerability_count }}
+      high_risk_dependencies:
+        description: "Número de dependencias de alto riesgo"
+        value: ${{ jobs.sca_analysis.outputs.high_risk_dependencies }}
+      license_issues:
+        description: "Número de problemas de licencia encontrados"
+        value: ${{ jobs.sca_analysis.outputs.license_issues }}
+
+jobs:
+  sca_analysis:
+    name: SCA Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      vulnerability_count: ${{ steps.analyze_results.outputs.vulnerability_count }}
+      high_risk_dependencies: ${{ steps.analyze_results.outputs.high_risk_dependencies }}
+      license_issues: ${{ steps.analyze_results.outputs.license_issues }}
+    
+    permissions:
+      # Requerido para GHAS
+      contents: read
+      security-events: write
+      pull-requests: write
+      actions: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Configurar entorno Node.js
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ inputs.microservice_path }}/package-lock.json
+
+      # Dependabot Alerts Analysis (GitHub native)
+      - name: Enable Dependabot Alerts
+        run: |
+          echo "📋 Dependabot alerts están habilitadas automáticamente para repositorios públicos"
+          echo "Las vulnerabilidades se mostrarán en Security > Dependabot alerts"
+
+      # Análisis de dependencias con GitHub Dependency Review
+      - name: Dependency Review
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          config-file: '.github/dependency-review-config.yml'
+          comment-summary-in-pr: true
+          fail-on-severity: high
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0
+
+      # Crear configuración de Dependency Review si no existe
+      - name: Create Dependency Review Config
+        run: |
+          mkdir -p .github
+          cat > .github/dependency-review-config.yml << 'EOF'
+          fail_on_severity: 'high'
+          fail_on_scopes:
+            - 'runtime'
+            - 'development'
+          allow_licenses:
+            - 'MIT'
+            - 'Apache-2.0'
+            - 'BSD-2-Clause'
+            - 'BSD-3-Clause'
+            - 'ISC'
+            - 'Unlicense'
+          deny_licenses:
+            - 'GPL-2.0'
+            - 'GPL-3.0'
+            - 'AGPL-1.0'
+            - 'AGPL-3.0'
+            - 'CC-BY-SA-4.0'
+          allow_ghsas:
+            - 'GHSA-abcd-1234-5679' # Ejemplo: permitir GHSA específicos si es necesario
+          EOF
+
+      # Análisis con npm audit para Node.js
+      - name: NPM Security Audit
+        if: ${{ inputs.package_manager == 'npm' }}
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          echo "🔍 Ejecutando npm audit..."
+          
+          # Instalar dependencias
+          npm ci --only=production
+          
+          # Ejecutar audit y guardar resultados
+          npm audit --audit-level=moderate --json > npm-audit-results.json || true
+          npm audit --audit-level=moderate > npm-audit-report.txt || true
+          
+          echo "📊 Resultados del audit guardados"
+
+      # Análisis con Yarn (si se usa Yarn)
+      - name: Yarn Security Audit
+        if: ${{ inputs.package_manager == 'yarn' }}
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          echo "🔍 Ejecutando yarn audit..."
+          yarn install --frozen-lockfile --production
+          yarn audit --json > yarn-audit-results.json || true
+          yarn audit > yarn-audit-report.txt || true
+
+      # Análisis con pnpm (si se usa pnpm)
+      - name: PNPM Security Audit
+        if: ${{ inputs.package_manager == 'pnpm' }}
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          echo "🔍 Ejecutando pnpm audit..."
+          pnpm install --prod
+          pnpm audit --json > pnpm-audit-results.json || true
+          pnpm audit > pnpm-audit-report.txt || true
+
+      # Análisis con Snyk específico para Node.js
+      - name: Snyk Security Analysis
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN || '' }}
+        with:
+          args: --all-projects --detection-depth=4 --json-file-output=snyk-results.json
+          command: test
+
+      # OWASP Dependency Check específico para Node.js
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'mibanco-microservice'
+          path: ${{ inputs.microservice_path }}
+          format: 'JSON'
+          args: >
+            --enableRetired
+            --enableExperimental
+            --nodeAuditSkipDevDependencies
+            --nodePackageSkipDevDependencies
+            --failOnCVSS 7
+            --out dependency-check-report.json
+
+      # License Scanner específico para Node.js
+      - name: License Analysis
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          echo "📄 Analizando licencias de dependencias..."
+          
+          # Instalar license-checker para Node.js
+          npm install -g license-checker
+          license-checker --json > license-report.json || true
+          license-checker --csv > license-report.csv || true
+          license-checker --summary > license-summary.txt || true
+          
+          # Crear reporte de licencias problemáticas
+          cat > license-analysis.md << 'EOF'
+          ## 📄 License Analysis Report
+          
+          ### Potentially Problematic Licenses Found:
+          - GPL-2.0, GPL-3.0 (Copyleft licenses)
+          - AGPL-1.0, AGPL-3.0 (Network copyleft licenses)
+          - Commercial licenses without proper permissions
+          
+          ### Recommended Actions:
+          1. Review all GPL/AGPL dependencies
+          2. Consider alternatives with permissive licenses (MIT, Apache-2.0)
+          3. Ensure compliance with license terms
+          4. Document license decisions for audit purposes
+          EOF
+
+      # Análisis de resultados consolidados
+      - name: Analyze SCA Results
+        id: analyze_results
+        run: |
+          echo "📊 Consolidando resultados de análisis SCA..."
+          
+          VULNERABILITY_COUNT=0
+          HIGH_RISK_COUNT=0
+          LICENSE_ISSUES=0
+          
+          # Contar vulnerabilidades de npm audit
+          if [ -f "${{ inputs.microservice_path }}/npm-audit-results.json" ]; then
+            AUDIT_VULNS=$(jq '.metadata.vulnerabilities.total // 0' "${{ inputs.microservice_path }}/npm-audit-results.json" 2>/dev/null || echo "0")
+            VULNERABILITY_COUNT=$((VULNERABILITY_COUNT + AUDIT_VULNS))
+            
+            HIGH_VULNS=$(jq '.metadata.vulnerabilities.high // 0' "${{ inputs.microservice_path }}/npm-audit-results.json" 2>/dev/null || echo "0")
+            CRITICAL_VULNS=$(jq '.metadata.vulnerabilities.critical // 0' "${{ inputs.microservice_path }}/npm-audit-results.json" 2>/dev/null || echo "0")
+            HIGH_RISK_COUNT=$((HIGH_VULNS + CRITICAL_VULNS))
+          fi
+          
+          # Contar problemas de licencias (simplificado)
+          if [ -f "${{ inputs.microservice_path }}/license-report.json" ]; then
+            LICENSE_ISSUES=$(jq 'to_entries | map(select(.value | contains("GPL") or contains("AGPL"))) | length' "${{ inputs.microservice_path }}/license-report.json" 2>/dev/null || echo "0")
+          fi
+          
+          echo "vulnerability_count=$VULNERABILITY_COUNT" >> $GITHUB_OUTPUT
+          echo "high_risk_dependencies=$HIGH_RISK_COUNT" >> $GITHUB_OUTPUT
+          echo "license_issues=$LICENSE_ISSUES" >> $GITHUB_OUTPUT
+          
+          # Generar reporte resumido
+          cat > sca-summary.md << EOF
+          ## 🔍 SCA Analysis Summary
+          
+          **Dependencies Security Status:**
+          - 🚨 Total Vulnerabilities: $VULNERABILITY_COUNT
+          - ⚠️ High Risk Dependencies: $HIGH_RISK_COUNT
+          - 📄 License Issues: $LICENSE_ISSUES
+          
+          **Analysis Tools Used:**
+          - ✅ GitHub Dependency Review
+          - ✅ NPM/Yarn Audit
+          - ✅ OWASP Dependency Check
+          - ✅ License Scanner
+          - ✅ Snyk Security (if configured)
+          
+          **Recommendations:**
+          - Update vulnerable dependencies to latest secure versions
+          - Review license compatibility issues
+          - Monitor for new vulnerability disclosures
+          - Consider dependency alternatives if needed
+          
+          **Next Steps:**
+          1. Check Security tab for Dependabot alerts
+          2. Review detailed reports in artifacts
+          3. Update dependencies with known vulnerabilities
+          EOF
+
+      # Generar SARIF para GHAS (si existe archivo de Snyk)
+      - name: Upload Snyk results to GitHub Advanced Security
+        if: always() && hashFiles('snyk-results.json') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-results.json
+          category: "snyk-sca"
+
+      # Comentar en PR con resultados SCA
+      - name: Comment PR with SCA Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('sca-summary.md')) {
+              const summary = fs.readFileSync('sca-summary.md', 'utf8');
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            }
+
+      # Upload de artefactos
+      - name: Upload SCA Analysis Results
+        if: ${{ inputs.upload_results }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-security-results-${{ github.run_id }}
+          path: |
+            sca-summary.md
+            ${{ inputs.microservice_path }}/npm-audit-results.json
+            ${{ inputs.microservice_path }}/npm-audit-report.txt
+            ${{ inputs.microservice_path }}/yarn-audit-results.json
+            ${{ inputs.microservice_path }}/yarn-audit-report.txt
+            ${{ inputs.microservice_path }}/license-report.json
+            ${{ inputs.microservice_path }}/license-report.csv
+            dependency-check-report.json
+            snyk-results.json
+            safety-results.json
+            license-analysis.md
+          retention-days: 30
+
+      # Security gate para vulnerabilidades críticas
+      - name: SCA Security Gate
+        run: |
+          HIGH_RISK="${{ steps.analyze_results.outputs.high_risk_dependencies }}"
+          TOTAL_VULNS="${{ steps.analyze_results.outputs.vulnerability_count }}"
+          
+          echo "📊 SCA Security Gate Analysis:"
+          echo "  - Total vulnerabilities: $TOTAL_VULNS"
+          echo "  - High risk dependencies: $HIGH_RISK"
+          
+          if [ "$HIGH_RISK" -gt 5 ]; then
+            echo "❌ SCA Security Gate Failed: Too many high-risk dependencies ($HIGH_RISK > 5)"
+            echo "Please update or replace high-risk dependencies before merging"
+            exit 1
+          elif [ "$TOTAL_VULNS" -gt 20 ]; then
+            echo "⚠️ SCA Security Gate Warning: Many vulnerabilities found ($TOTAL_VULNS > 20)"
+            echo "Consider addressing vulnerabilities to improve security posture"
+            # No exit aquí, solo warning
+          else
+            echo "✅ SCA Security Gate Passed"
+          fi

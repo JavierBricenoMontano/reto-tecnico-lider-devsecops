@@ -1,0 +1,247 @@
+name: SAST Security Analysis Template
+
+on:
+  workflow_call:
+    inputs:
+      microservice_path:
+        description: "Ruta del microservicio a analizar"
+        required: true
+        type: string
+      language:
+        description: "Lenguaje principal del proyecto"
+        required: false
+        type: string
+        default: "javascript"
+      config_file_path:
+        description: "Ruta personalizada del archivo de configuración CodeQL"
+        required: false
+        type: string
+      upload_results:
+        description: "Subir resultados como artefactos"
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      security_score:
+        description: "Puntaje de seguridad del análisis"
+        value: ${{ jobs.sast_analysis.outputs.security_score }}
+      critical_vulnerabilities:
+        description: "Número de vulnerabilidades críticas encontradas"
+        value: ${{ jobs.sast_analysis.outputs.critical_vulnerabilities }}
+
+jobs:
+  sast_analysis:
+    name: SAST Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      security_score: ${{ steps.analyze_results.outputs.security_score }}
+      critical_vulnerabilities: ${{ steps.analyze_results.outputs.critical_vulnerabilities }}
+    
+    permissions:
+      # Requerido para acciones con GHAS
+      actions: read
+      contents: read
+      security-events: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for better analysis
+          fetch-depth: 0
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.microservice_path }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          npm ci --only=production
+
+      # Inicializar CodeQL para JavaScript/Node.js
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+          config-file: ${{ inputs.config_file_path && format('{0}', inputs.config_file_path) || '.github/codeql/codeql-config.yml' }}
+          # Configuración específica para repositorios públicos
+          tools: latest
+          
+      # Build automático (para lenguajes compilados)
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+        
+      # Análisis CodeQL
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript"
+          upload: true
+          
+      # Análisis adicional con Semgrep (Open Source)
+      - name: Run Semgrep Security Analysis
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+          publishToken: ${{ secrets.SEMGREP_APP_TOKEN || '' }}
+          publishDeployment: ${{ github.repository }}
+          generateSarif: "1"
+          
+      # Upload de resultados Semgrep a GHAS
+      - name: Upload Semgrep results to GitHub Advanced Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: "semgrep"
+          
+      # ESLint Security para Node.js
+      - name: Run ESLint Security Analysis
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          # Instalar plugins de seguridad
+          npm install --save-dev \
+            eslint-plugin-security \
+            eslint-plugin-node-security \
+            @microsoft/eslint-plugin-sdl
+          
+          # Ejecutar ESLint con reglas de seguridad
+          npx eslint . \
+            --ext .js \
+            --format json \
+            --output-file eslint-security-results.json \
+            --config .eslintrc.security.js || true
+            
+      # Crear configuración ESLint de seguridad optimizada para Node.js
+      - name: Create ESLint Security Config
+        working-directory: ${{ inputs.microservice_path }}
+        run: |
+          cat > .eslintrc.security.js << 'EOF'
+          module.exports = {
+            env: {
+              node: true,
+              es2021: true,
+            },
+            plugins: ['security', 'node-security', '@microsoft/sdl'],
+            extends: [
+              'plugin:security/recommended',
+              'plugin:@microsoft/sdl/recommended'
+            ],
+            rules: {
+              // Reglas críticas para Node.js/Express
+              'security/detect-object-injection': 'error',
+              'security/detect-eval-with-expression': 'error',
+              'security/detect-unsafe-regex': 'error',
+              'security/detect-buffer-noassert': 'error',
+              'security/detect-child-process': 'warn',
+              'security/detect-disable-mustache-escape': 'error',
+              'security/detect-new-buffer': 'error',
+              'security/detect-no-csrf-before-method-override': 'error',
+              'security/detect-non-literal-fs-filename': 'warn',
+              'security/detect-non-literal-regexp': 'warn',
+              'security/detect-non-literal-require': 'warn',
+              'security/detect-possible-timing-attacks': 'warn',
+              'security/detect-pseudoRandomBytes': 'error',
+              
+              // Reglas adicionales para Express.js
+              'no-eval': 'error',
+              'no-implied-eval': 'error',
+              'no-new-func': 'error',
+              'no-console': 'warn'
+            }
+          };
+          EOF
+
+      # Análisis de resultados y métricas
+      - name: Analyze Security Results
+        id: analyze_results
+        run: |
+          echo "Analizando resultados de seguridad..."
+          
+          # Contar vulnerabilidades de CodeQL desde SARIF
+          CRITICAL_COUNT=0
+          HIGH_COUNT=0
+          
+          if [ -f "$GITHUB_WORKSPACE/results.sarif" ]; then
+            CRITICAL_COUNT=$(jq '[.runs[].results[] | select(.level == "error" or .ruleId | contains("critical"))] | length' "$GITHUB_WORKSPACE/results.sarif" 2>/dev/null || echo "0")
+            HIGH_COUNT=$(jq '[.runs[].results[] | select(.level == "warning" and (.ruleId | contains("high")))] | length' "$GITHUB_WORKSPACE/results.sarif" 2>/dev/null || echo "0")
+          fi
+          
+          # Calcular score de seguridad (100 - (critical*10 + high*5))
+          SECURITY_SCORE=$((100 - (CRITICAL_COUNT * 10 + HIGH_COUNT * 5)))
+          if [ $SECURITY_SCORE -lt 0 ]; then
+            SECURITY_SCORE=0
+          fi
+          
+          echo "critical_vulnerabilities=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+          echo "high_vulnerabilities=$HIGH_COUNT" >> $GITHUB_OUTPUT
+          echo "security_score=$SECURITY_SCORE" >> $GITHUB_OUTPUT
+          
+          # Generar reporte resumido
+          cat > security-summary.md << EOF
+          ## 🔍 SAST Analysis Summary
+          
+          **Security Score:** $SECURITY_SCORE/100
+          
+          **Vulnerabilities Found:**
+          - 🚨 Critical: $CRITICAL_COUNT
+          - ⚠️ High: $HIGH_COUNT
+          
+          **Analysis Tools Used:**
+          - ✅ GitHub CodeQL
+          - ✅ Semgrep Security Rules
+          - ✅ ESLint Security Plugin (Node.js)
+          
+          **Recommendations:**
+          - Review all critical vulnerabilities immediately
+          - Fix high-priority issues before deployment
+          - Consider implementing additional security controls
+          EOF
+
+      # Comentar en PR con resultados
+      - name: Comment PR with Security Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('security-summary.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+      # Upload de artefactos
+      - name: Upload Security Analysis Results
+        if: ${{ inputs.upload_results }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-security-results-${{ github.run_id }}
+          path: |
+            security-summary.md
+            eslint-security-results.json
+            semgrep.sarif
+          retention-days: 30
+          
+      # Fallar el job si hay vulnerabilidades críticas
+      - name: Security Gate
+        run: |
+          CRITICAL_COUNT="${{ steps.analyze_results.outputs.critical_vulnerabilities }}"
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "❌ Security Gate Failed: $CRITICAL_COUNT critical vulnerabilities found"
+            echo "Please review and fix critical security issues before merging"
+            exit 1
+          else
+            echo "✅ Security Gate Passed: No critical vulnerabilities found"
+          fi

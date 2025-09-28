@@ -1,0 +1,298 @@
+name: Security Analysis Workflow
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - release
+      - main
+    paths:
+      - 'mibanco-microservice/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      run_sast:
+        description: 'Ejecutar análisis SAST'
+        required: false
+        type: boolean
+        default: true
+      run_sca:
+        description: 'Ejecutar análisis SCA'
+        required: false
+        type: boolean
+        default: true
+      microservice_path:
+        description: 'Ruta del microservicio (opcional, por defecto: mibanco-microservice)'
+        required: false
+        type: string
+        default: 'mibanco-microservice'
+
+env:
+  # Configuración global
+  MICROSERVICE_PATH: ${{ github.event.inputs.microservice_path || 'mibanco-microservice' }}
+  NODE_VERSION: '18'
+  
+permissions:
+  # Permisos necesarios para GHAS
+  actions: read
+  contents: read
+  security-events: write
+  pull-requests: write
+  checks: write
+
+jobs:
+  # Job de preparación y validación
+  setup:
+    name: Security Analysis Setup
+    runs-on: ubuntu-latest
+    outputs:
+      should_run_sast: ${{ steps.determine_jobs.outputs.should_run_sast }}
+      should_run_sca: ${{ steps.determine_jobs.outputs.should_run_sca }}
+      microservice_changed: ${{ steps.check_changes.outputs.microservice_changed }}
+      language_detected: ${{ steps.detect_language.outputs.language }}
+      package_manager: ${{ steps.detect_language.outputs.package_manager }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for microservice changes
+        id: check_changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "microservice_changed=true" >> $GITHUB_OUTPUT
+            echo "🔄 Manual run - analyzing all files"
+          else
+            # Para pull requests, verificar cambios en el microservicio
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep "^$MICROSERVICE_PATH/" || echo "")
+            if [ -n "$CHANGED_FILES" ]; then
+              echo "microservice_changed=true" >> $GITHUB_OUTPUT
+              echo "📝 Microservice files changed:"
+              echo "$CHANGED_FILES"
+            else
+              echo "microservice_changed=false" >> $GITHUB_OUTPUT
+              echo "📝 No microservice files changed"
+            fi
+          fi
+
+      - name: Detect package manager
+        id: detect_language
+        run: |
+          cd "$MICROSERVICE_PATH" || exit 1
+          
+          LANGUAGE="javascript"
+          PACKAGE_MANAGER="npm"
+          
+          # Detectar gestor de paquetes para Node.js
+          if [ -f "yarn.lock" ]; then
+            PACKAGE_MANAGER="yarn"
+          elif [ -f "pnpm-lock.yaml" ]; then
+            PACKAGE_MANAGER="pnpm"
+          else
+            PACKAGE_MANAGER="npm"
+          fi
+          
+          echo "language=$LANGUAGE" >> $GITHUB_OUTPUT
+          echo "package_manager=$PACKAGE_MANAGER" >> $GITHUB_OUTPUT
+          echo "🔍 Detected language: $LANGUAGE, package manager: $PACKAGE_MANAGER"
+
+      - name: Determine jobs to run
+        id: determine_jobs
+        run: |
+          MICROSERVICE_CHANGED="${{ steps.check_changes.outputs.microservice_changed }}"
+          RUN_SAST="${{ github.event.inputs.run_sast }}"
+          RUN_SCA="${{ github.event.inputs.run_sca }}"
+          
+          # Para workflow_dispatch, usar los inputs del usuario
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run_sast=${RUN_SAST:-true}" >> $GITHUB_OUTPUT
+            echo "should_run_sca=${RUN_SCA:-true}" >> $GITHUB_OUTPUT
+          # Para otros eventos, ejecutar solo si hay cambios en el microservicio
+          elif [ "$MICROSERVICE_CHANGED" = "true" ]; then
+            echo "should_run_sast=true" >> $GITHUB_OUTPUT
+            echo "should_run_sca=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run_sast=false" >> $GITHUB_OUTPUT
+            echo "should_run_sca=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Job SAST usando el template
+  sast_analysis:
+    name: SAST Security Analysis
+    needs: setup
+    if: needs.setup.outputs.should_run_sast == 'true'
+    uses: ./.github/workflows/security-sast-template.yml
+    with:
+      microservice_path: ${{ needs.setup.outputs.microservice_path || 'mibanco-microservice' }}
+      language: ${{ needs.setup.outputs.language_detected }}
+      upload_results: true
+    secrets: inherit
+
+  # Job SCA usando el template
+  sca_analysis:
+    name: SCA Security Analysis
+    needs: setup
+    if: needs.setup.outputs.should_run_sca == 'true'
+    uses: ./.github/workflows/security-sca-template.yml
+    with:
+      microservice_path: ${{ needs.setup.outputs.microservice_path || 'mibanco-microservice' }}
+      language: ${{ needs.setup.outputs.language_detected }}
+      package_manager: ${{ needs.setup.outputs.package_manager }}
+      upload_results: true
+    secrets: inherit
+
+  # Job de consolidación de resultados
+  security_summary:
+    name: Security Analysis Summary
+    runs-on: ubuntu-latest
+    needs: [setup, sast_analysis, sca_analysis]
+    if: always() && (needs.sast_analysis.result != 'skipped' || needs.sca_analysis.result != 'skipped')
+    
+    permissions:
+      pull-requests: write
+      security-events: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate Security Summary
+        run: |
+          echo "# 🛡️ Resumen de Análisis de Seguridad" > security-final-summary.md
+          echo "" >> security-final-summary.md
+          echo "**Fecha del análisis:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> security-final-summary.md
+          echo "**Commit:** \`${{ github.sha }}\`" >> security-final-summary.md
+          echo "**Branch:** \`${{ github.head_ref || github.ref_name }}\`" >> security-final-summary.md
+          echo "" >> security-final-summary.md
+          
+          # Información de SAST
+          if [ "${{ needs.sast_analysis.result }}" != "skipped" ]; then
+            echo "## 🔍 SAST Analysis Results" >> security-final-summary.md
+            echo "- **Status:** ${{ needs.sast_analysis.result }}" >> security-final-summary.md
+            if [ "${{ needs.sast_analysis.result }}" = "success" ]; then
+              echo "- **Security Score:** ${{ needs.sast_analysis.outputs.security_score }}/100" >> security-final-summary.md
+              echo "- **Critical Vulnerabilities:** ${{ needs.sast_analysis.outputs.critical_vulnerabilities }}" >> security-final-summary.md
+            fi
+            echo "" >> security-final-summary.md
+          fi
+          
+          # Información de SCA
+          if [ "${{ needs.sca_analysis.result }}" != "skipped" ]; then
+            echo "## 📦 SCA Analysis Results" >> security-final-summary.md
+            echo "- **Status:** ${{ needs.sca_analysis.result }}" >> security-final-summary.md
+            if [ "${{ needs.sca_analysis.result }}" = "success" ]; then
+              echo "- **Total Vulnerabilities:** ${{ needs.sca_analysis.outputs.vulnerability_count }}" >> security-final-summary.md
+              echo "- **High Risk Dependencies:** ${{ needs.sca_analysis.outputs.high_risk_dependencies }}" >> security-final-summary.md
+              echo "- **License Issues:** ${{ needs.sca_analysis.outputs.license_issues }}" >> security-final-summary.md
+            fi
+            echo "" >> security-final-summary.md
+          fi
+          
+          # Recomendaciones generales
+          echo "## 📋 Recomendaciones" >> security-final-summary.md
+          echo "1. **Revisa los hallazgos** en la pestaña Security del repositorio" >> security-final-summary.md
+          echo "2. **Actualiza dependencias** vulnerables a versiones seguras" >> security-final-summary.md
+          echo "3. **Implementa controles** adicionales según las vulnerabilidades encontradas" >> security-final-summary.md
+          echo "4. **Monitorea alertas** de Dependabot para nuevas vulnerabilidades" >> security-final-summary.md
+          echo "" >> security-final-summary.md
+          
+          # Enlaces útiles
+          echo "## 🔗 Enlaces Útiles" >> security-final-summary.md
+          echo "- [Security Alerts](https://github.com/${{ github.repository }}/security)" >> security-final-summary.md
+          echo "- [Dependabot Alerts](https://github.com/${{ github.repository }}/security/dependabot)" >> security-final-summary.md
+          echo "- [Code Scanning Alerts](https://github.com/${{ github.repository }}/security/code-scanning)" >> security-final-summary.md
+
+      # Comentar resumen final en PR
+      - name: Comment Final Security Summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('security-final-summary.md', 'utf8');
+            
+            // Buscar comentarios existentes del bot
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🛡️ Resumen de Análisis de Seguridad')
+            );
+            
+            if (botComment) {
+              // Actualizar comentario existente
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            } else {
+              // Crear nuevo comentario
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            }
+
+      # Upload del resumen final
+      - name: Upload Security Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-final-summary-${{ github.run_id }}
+          path: security-final-summary.md
+          retention-days: 90
+
+  # Job de verificación final de seguridad
+  security_gate:
+    name: Security Gate Check
+    runs-on: ubuntu-latest
+    needs: [sast_analysis, sca_analysis]
+    if: always() && (needs.sast_analysis.result != 'skipped' || needs.sca_analysis.result != 'skipped')
+    
+    steps:
+      - name: Security Gate Decision
+        run: |
+          echo "🚪 Evaluando Security Gate..."
+          
+          SAST_RESULT="${{ needs.sast_analysis.result }}"
+          SCA_RESULT="${{ needs.sca_analysis.result }}"
+          
+          CRITICAL_VULNS="${{ needs.sast_analysis.outputs.critical_vulnerabilities || '0' }}"
+          HIGH_RISK_DEPS="${{ needs.sca_analysis.outputs.high_risk_dependencies || '0' }}"
+          
+          GATE_FAILED=false
+          
+          # Verificar resultados de SAST
+          if [ "$SAST_RESULT" = "failure" ]; then
+            echo "❌ SAST analysis failed"
+            GATE_FAILED=true
+          elif [ "$CRITICAL_VULNS" -gt 0 ]; then
+            echo "❌ Critical vulnerabilities found in SAST: $CRITICAL_VULNS"
+            GATE_FAILED=true
+          fi
+          
+          # Verificar resultados de SCA
+          if [ "$SCA_RESULT" = "failure" ]; then
+            echo "❌ SCA analysis failed"
+            GATE_FAILED=true
+          elif [ "$HIGH_RISK_DEPS" -gt 5 ]; then
+            echo "❌ Too many high-risk dependencies: $HIGH_RISK_DEPS"
+            GATE_FAILED=true
+          fi
+          
+          if [ "$GATE_FAILED" = true ]; then
+            echo "🚫 Security Gate FAILED - Blocking merge"
+            echo "Please address security issues before proceeding"
+            exit 1
+          else
+            echo "✅ Security Gate PASSED - Safe to proceed"
+          fi

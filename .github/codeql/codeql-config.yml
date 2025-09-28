@@ -1,0 +1,69 @@
+# Configuración de CodeQL optimizada para JavaScript/Node.js
+# Este archivo personaliza el comportamiento de GitHub CodeQL para MiBanco
+
+name: "MiBanco Node.js Security Configuration"
+
+# Configuración específica para JavaScript/Node.js
+queries:
+  - name: security-extended
+    uses: 
+      - javascript/ql/src/codeql-suites/javascript-security-extended.qls
+      - javascript/ql/src/codeql-suites/javascript-security-and-quality.qls
+
+# Configuración optimizada para Node.js/Express
+javascript:
+  # Queries específicas de seguridad para Node.js
+  queries:
+    - uses: javascript/ql/src/codeql-suites/javascript-security-extended.qls
+    - uses: javascript/ql/src/codeql-suites/javascript-security-and-quality.qls
+  
+  # Excluir archivos innecesarios para el análisis
+  paths-ignore:
+    - node_modules/**
+    - dist/**
+    - build/**
+    - coverage/**
+    - "**/*.min.js"
+    - "**/*.bundle.js"
+    - test/**
+    - tests/**
+    - spec/**
+    - __tests__/**
+    - "**/*.test.js"
+    - "**/*.spec.js"
+    - ".eslintrc.*.js"
+    - "webpack.*.js"
+    - "rollup.*.js"
+
+# Rutas específicas a incluir
+paths:
+  - src/**
+  - lib/**
+  - app/**
+  - mibanco-microservice/src/**
+
+# Rutas a excluir globalmente
+paths-ignore:
+  - "**/*.md"
+  - "**/*.txt"
+  - "**/*.json"
+  - "**/*.yml"
+  - "**/*.yaml"
+  - .git/**
+  - .github/**
+  - infrastructure/**
+  - terraform/**
+  - docs/**
+  - documentation/**
+  - "**/*.config.js"
+
+# Configuración específica para reducir falsos positivos en Node.js
+disable-default-path-filters: false
+
+# Configuración avanzada para mejor rendimiento
+threaded-queries: true
+external-data: true
+
+# Configuración específica para Express.js y APIs REST
+feature-flags:
+  - javascript-experimental-atm-modeling

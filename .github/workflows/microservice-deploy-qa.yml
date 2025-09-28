@@ -1,10 +1,10 @@
-name: Develop - Deploy Microservice
+name: QA - Deploy Microservice
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - development
+      - release
     paths:
       - "mibanco-microservice/**"
 

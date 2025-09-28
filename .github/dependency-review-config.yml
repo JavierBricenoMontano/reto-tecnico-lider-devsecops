@@ -1,0 +1,113 @@
+# Configuración de Dependency Review para SCA
+# Este archivo controla el comportamiento del análisis de dependencias
+
+# Nivel de severidad mínimo que causa fallo del workflow
+fail_on_severity: 'high'
+
+# Scopes de dependencias a analizar
+fail_on_scopes:
+  - 'runtime'      # Dependencias de producción
+  - 'development'  # Dependencias de desarrollo (opcional, puede ser removido)
+
+# Licencias permitidas (permisivas y compatibles con uso comercial)
+allow_licenses:
+  # Licencias muy permisivas
+  - 'MIT'
+  - 'Apache-2.0'
+  - 'Apache-1.1'
+  - 'BSD-2-Clause'
+  - 'BSD-3-Clause'
+  - 'ISC'
+  - 'Unlicense'
+  - 'CC0-1.0'
+  
+  # Licencias permisivas con algunos requisitos
+  - 'LGPL-2.1'
+  - 'LGPL-3.0'
+  - 'MPL-2.0'
+  - 'EPL-1.0'
+  - 'EPL-2.0'
+  
+  # Licencias de documentación
+  - 'CC-BY-4.0'
+
+# Licencias prohibidas (copyleft estricto y comerciales problemáticas)
+deny_licenses:
+  # GPL (copyleft fuerte)
+  - 'GPL-2.0'
+  - 'GPL-2.0-only'
+  - 'GPL-2.0-or-later'
+  - 'GPL-3.0'
+  - 'GPL-3.0-only'
+  - 'GPL-3.0-or-later'
+  
+  # AGPL (copyleft de red)
+  - 'AGPL-1.0'
+  - 'AGPL-3.0'
+  - 'AGPL-3.0-only'
+  - 'AGPL-3.0-or-later'
+  
+  # Creative Commons Share-Alike (problemático para código)
+  - 'CC-BY-SA-4.0'
+  - 'CC-BY-SA-3.0'
+  - 'CC-BY-SA-2.0'
+  
+  # Licencias comerciales o propietarias
+  - 'UNLICENSED'
+  - 'COMMERCIAL'
+
+# Configuración de vulnerabilidades específicas
+# Se pueden permitir CVEs específicos si son aceptados después de revisión
+allow_ghsas: []
+  # Ejemplo de formato:
+  # - 'GHSA-abcd-1234-5679'  # Permitir este GHSA específico después de revisión
+
+# Configuración de análisis
+block_threshold: 0.8  # Bloquear si más del 80% de las nuevas dependencias tienen problemas
+
+# Configuración de reportes
+comment_summary_in_pr: true
+summary_template: |
+  ## 🔍 Dependency Review Summary
+  
+  **New Dependencies Analyzed:** {new_dependencies_count}
+  **Vulnerabilities Found:** {vulnerabilities_count}
+  **License Issues:** {license_issues_count}
+  
+  ### Recommendations:
+  - Review all flagged dependencies
+  - Consider alternatives for problematic licenses
+  - Update vulnerable packages to secure versions
+  
+  For detailed information, check the Security tab.
+
+# Configuración de excepciones por ecosistema
+ecosystem_config:
+  npm:
+    # Para dependencias de desarrollo de npm, ser más permisivo
+    dev_dependencies:
+      fail_on_severity: 'critical'
+      allow_licenses:
+        - 'GPL-2.0'  # Permitir GPL solo para dev dependencies
+        - 'GPL-3.0'
+  
+  maven:
+    # Configuración específica para Maven
+    fail_on_severity: 'high'
+    
+  pip:
+    # Configuración específica para Python
+    fail_on_severity: 'high'
+
+# Configuración de umbral de edad de vulnerabilidades
+vulnerability_age_threshold: 90  # días
+
+# Configuración de excepciones temporales
+# Usar con precaución y revisar regularmente
+temporary_exceptions:
+  expiry_date: "2024-12-31"  # Fecha de expiración de excepciones
+  allowed_vulnerabilities: []
+    # Ejemplo:
+    # - vulnerability_id: "CVE-2023-12345"
+    #   reason: "No fix available yet, mitigation in place"
+    #   review_date: "2024-06-01"
