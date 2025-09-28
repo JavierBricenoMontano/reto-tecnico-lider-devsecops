@@ -1,0 +1,1 @@
+[![Security Analysis Workflow](https://github.com/JavierBricenoMontano/reto-tecnico-lider-devsecops/actions/workflows/security-analysis.yml/badge.svg?branch=development)](https://github.com/JavierBricenoMontano/reto-tecnico-lider-devsecops/actions/workflows/security-analysis.yml)
