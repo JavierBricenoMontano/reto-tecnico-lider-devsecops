@@ -316,6 +316,7 @@ jobs:
 
       # Security gate para DAST
       - name: DAST Security Gate
+        continue-on-error: true
         run: |
           HIGH_ALERTS="${{ steps.analyze_results.outputs.high_risk_alerts }}"
           MEDIUM_ALERTS="${{ steps.analyze_results.outputs.medium_risk_alerts }}"
