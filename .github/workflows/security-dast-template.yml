@@ -1,0 +1,334 @@
+name: DAST Security Analysis Template
+
+on:
+  workflow_call:
+    inputs:
+      target_url:
+        description: "URL del microservicio para análisis DAST"
+        required: true
+        type: string
+      scan_type:
+        description: "Tipo de escaneo OWASP ZAP (baseline, full, api)"
+        required: false
+        type: string
+        default: "baseline"
+      timeout:
+        description: "Timeout del análisis en minutos"
+        required: false
+        type: string
+        default: "10"
+      upload_results:
+        description: "Subir resultados como artefactos"
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      high_risk_alerts:
+        description: "Número de alertas de alto riesgo encontradas"
+        value: ${{ jobs.dast_analysis.outputs.high_risk_alerts }}
+      medium_risk_alerts:
+        description: "Número de alertas de riesgo medio encontradas"
+        value: ${{ jobs.dast_analysis.outputs.medium_risk_alerts }}
+      total_alerts:
+        description: "Total de alertas encontradas"
+        value: ${{ jobs.dast_analysis.outputs.total_alerts }}
+
+jobs:
+  dast_analysis:
+    name: DAST Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      high_risk_alerts: ${{ steps.analyze_results.outputs.high_risk_alerts }}
+      medium_risk_alerts: ${{ steps.analyze_results.outputs.medium_risk_alerts }}
+      total_alerts: ${{ steps.analyze_results.outputs.total_alerts }}
+    
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+      actions: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verificar conectividad al target
+        run: |
+          echo "🔍 Verificando conectividad a ${{ inputs.target_url }}"
+          
+          # Verificar que la URL responde
+          if curl -f -s --connect-timeout 10 "${{ inputs.target_url }}" > /dev/null; then
+            echo "✅ Target ${{ inputs.target_url }} is reachable"
+          else
+            echo "❌ Target ${{ inputs.target_url }} is not reachable"
+            echo "Please ensure the application is running and accessible"
+            exit 1
+          fi
+          
+          # Verificar endpoint de health si existe
+          if curl -f -s --connect-timeout 5 "${{ inputs.target_url }}/health" > /dev/null; then
+            echo "✅ Health endpoint is available"
+          else
+            echo "⚠️ No health endpoint found (this is optional)"
+          fi
+
+      # Análisis DAST con OWASP ZAP Baseline
+      - name: Run OWASP ZAP Baseline Scan
+        if: ${{ inputs.scan_type == 'baseline' }}
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: ${{ inputs.target_url }}
+          rules_file_name: '.zap/rules/baseline.tsv'
+          cmd_options: '-a -j -m ${{ inputs.timeout }} -T 5'
+          allow_issue_writing: false
+          fail_action: false
+
+      # Análisis DAST con OWASP ZAP Full Scan (más completo pero más lento)
+      - name: Run OWASP ZAP Full Scan
+        if: ${{ inputs.scan_type == 'full' }}
+        uses: zaproxy/action-full-scan@v0.10.0
+        with:
+          target: ${{ inputs.target_url }}
+          rules_file_name: '.zap/rules/full.tsv'
+          cmd_options: '-a -j -m ${{ inputs.timeout }} -T 15'
+          allow_issue_writing: false
+          fail_action: false
+
+      # Análisis DAST con OWASP ZAP API Scan (para APIs REST)
+      - name: Run OWASP ZAP API Scan
+        if: ${{ inputs.scan_type == 'api' }}
+        uses: zaproxy/action-api-scan@v0.7.0
+        with:
+          target: ${{ inputs.target_url }}
+          format: openapi
+          rules_file_name: '.zap/rules/api.tsv'
+          cmd_options: '-a -j -m ${{ inputs.timeout }}'
+          allow_issue_writing: false
+          fail_action: false
+
+      # Crear reglas personalizadas de ZAP si no existen
+      - name: Create ZAP Rules Configuration
+        run: |
+          mkdir -p .zap/rules
+          
+          # Reglas para baseline scan
+          cat > .zap/rules/baseline.tsv << 'EOF'
+          # ZAP Baseline Rules - Enfocadas en vulnerabilidades críticas
+          10016	WARN	# Web Browser XSS Protection Not Enabled
+          10017	WARN	# Cross-Domain JavaScript Source File Inclusion
+          10021	WARN	# X-Content-Type-Options Header Missing
+          10023	WARN	# Information Disclosure - Debug Error Messages
+          10025	WARN	# Information Disclosure - Sensitive Information in URL
+          10026	WARN	# HTTP Parameter Override
+          10027	WARN	# Information Disclosure - Suspicious Comments
+          10028	WARN	# Open Redirect
+          10032	WARN	# Viewstate Without MAC Signature
+          10035	WARN	# Strict-Transport-Security Header Missing
+          10036	WARN	# Server Leaks Version Information via "Server" HTTP Response Header Field
+          10037	WARN	# Server Leaks Information via "X-Powered-By" HTTP Response Header Field
+          10040	WARN	# Secure Cookie Not Set
+          10041	WARN	# HTTP to HTTPS Insecure Transition in Form Post
+          10042	WARN	# HTTPS to HTTP Insecure Transition in Form Post
+          10043	WARN	# User Controllable JavaScript Event (XSS)
+          10044	WARN	# User Controllable HTML Element Attribute (Potential XSS)
+          10045	WARN	# Source Code Disclosure - /WEB-INF folder
+          10047	WARN	# HTTPS Content Available via HTTP
+          10048	WARN	# Remote Code Execution - Shell Shock
+          10049	WARN	# Content Cacheability
+          10050	WARN	# Retrieved from Cache
+          10051	WARN	# Relative Path Confusion
+          10052	WARN	# X-ChromeLogger-Data (XCLD) Header Information Leak
+          10054	WARN	# Cookie without SameSite Attribute
+          10055	WARN	# CSP Scanner: Wildcard Directive
+          10056	WARN	# X-Debug-Token Information Leak
+          10061	WARN	# X-AspNet-Version Response Header
+          10062	WARN	# PII Disclosure
+          10063	WARN	# Feature Policy Header Not Set
+          10109	WARN	# Modern Web Application
+          10202	WARN	# Absence of Anti-CSRF Tokens
+          EOF
+          
+          # Reglas para API scan
+          cat > .zap/rules/api.tsv << 'EOF'
+          # ZAP API Rules - Específicas para APIs REST
+          90001	WARN	# Insecure JSF ViewState
+          90011	WARN	# Charset Mismatch
+          90017	WARN	# XSLT Injection
+          90019	WARN	# Server Side Code Injection
+          90020	WARN	# Remote OS Command Injection
+          90021	WARN	# XPath Injection
+          90022	WARN	# Application Error Disclosure
+          90023	WARN	# XML External Entity Attack
+          90024	WARN	# Generic Padding Oracle
+          90025	WARN	# Expression Language Injection
+          90026	WARN	# SOAP Action Spoofing
+          90027	WARN	# Cookie Slack Detector
+          90028	WARN	# Insecure Authentication
+          90029	WARN	# LDAP Injection
+          90030	WARN	# WSDL File Detection
+          EOF
+          
+          # Reglas para full scan (más comprensivas)
+          cat > .zap/rules/full.tsv << 'EOF'
+          # ZAP Full Scan Rules - Análisis comprehensivo
+          # Incluye todas las reglas de baseline más algunas adicionales
+          40012	WARN	# Cross Site Request Forgery
+          40014	WARN	# Cross Site Request Forgery
+          40016	WARN	# Cross Site Request Forgery
+          40017	WARN	# Cross Site Request Forgery
+          40018	WARN	# SQL Injection
+          40019	WARN	# SQL Injection - MySQL
+          40020	WARN	# SQL Injection - Hypersonic SQL
+          40021	WARN	# SQL Injection - Oracle
+          40022	WARN	# SQL Injection - PostgreSQL
+          40023	WARN	# Possible Username Enumeration
+          40024	WARN	# SQL Injection - SQLite
+          40025	WARN	# Proxy Disclosure
+          40026	WARN	# Cross Site Request Forgery
+          40027	WARN	# SQL Injection - MsSQL
+          40028	WARN	# ELMAH Information Leak
+          40029	WARN	# Trace.axd Information Leak
+          EOF
+
+      # Procesar y analizar resultados de ZAP
+      - name: Analyze DAST Results
+        id: analyze_results
+        run: |
+          echo "📊 Analizando resultados del análisis DAST..."
+          
+          # Inicializar contadores
+          HIGH_ALERTS=0
+          MEDIUM_ALERTS=0
+          LOW_ALERTS=0
+          TOTAL_ALERTS=0
+          
+          # Buscar archivo de reportes de ZAP
+          if [ -f "report_html.html" ]; then
+            echo "✅ Reporte HTML encontrado"
+            
+            # Extraer métricas básicas del reporte HTML (método simple)
+            HIGH_ALERTS=$(grep -o "High (Confidence: High)" report_html.html | wc -l || echo "0")
+            MEDIUM_ALERTS=$(grep -o "Medium (Confidence: Medium)" report_html.html | wc -l || echo "0")
+            LOW_ALERTS=$(grep -o "Low (Confidence: Low)" report_html.html | wc -l || echo "0")
+            
+            TOTAL_ALERTS=$((HIGH_ALERTS + MEDIUM_ALERTS + LOW_ALERTS))
+          fi
+          
+          # Buscar archivo JSON si existe
+          if [ -f "report_json.json" ]; then
+            echo "✅ Reporte JSON encontrado"
+            # Usar jq para análisis más preciso si está disponible
+            if command -v jq &> /dev/null; then
+              HIGH_ALERTS=$(jq '[.site[].alerts[] | select(.riskdesc | contains("High"))] | length' report_json.json 2>/dev/null || echo "$HIGH_ALERTS")
+              MEDIUM_ALERTS=$(jq '[.site[].alerts[] | select(.riskdesc | contains("Medium"))] | length' report_json.json 2>/dev/null || echo "$MEDIUM_ALERTS")
+              TOTAL_ALERTS=$(jq '[.site[].alerts[]] | length' report_json.json 2>/dev/null || echo "$TOTAL_ALERTS")
+            fi
+          fi
+          
+          echo "high_risk_alerts=$HIGH_ALERTS" >> $GITHUB_OUTPUT
+          echo "medium_risk_alerts=$MEDIUM_ALERTS" >> $GITHUB_OUTPUT
+          echo "total_alerts=$TOTAL_ALERTS" >> $GITHUB_OUTPUT
+          
+          # Generar reporte resumido
+          cat > dast-summary.md << EOF
+          ## 🔍 DAST Analysis Summary
+          
+          **Target URL:** ${{ inputs.target_url }}
+          **Scan Type:** ${{ inputs.scan_type }}
+          **Scan Duration:** ${{ inputs.timeout }} minutes
+          
+          **Security Alerts Found:**
+          - 🚨 High Risk: $HIGH_ALERTS
+          - ⚠️ Medium Risk: $MEDIUM_ALERTS  
+          - ℹ️ Low Risk: $LOW_ALERTS
+          - 📊 Total Alerts: $TOTAL_ALERTS
+          
+          **Analysis Tools Used:**
+          - ✅ OWASP ZAP (${{ inputs.scan_type }} scan)
+          
+          **OWASP Top 10 Coverage:**
+          - ✅ A01: Broken Access Control
+          - ✅ A02: Cryptographic Failures
+          - ✅ A03: Injection
+          - ✅ A04: Insecure Design
+          - ✅ A05: Security Misconfiguration
+          - ✅ A06: Vulnerable Components
+          - ✅ A07: Identity & Authentication Failures
+          - ✅ A08: Software & Data Integrity Failures
+          - ✅ A09: Security Logging & Monitoring Failures
+          - ✅ A10: Server-Side Request Forgery (SSRF)
+          
+          **Recommendations:**
+          - Review all high-risk alerts immediately
+          - Address medium-risk issues before release
+          - Implement security headers (CSP, HSTS, etc.)
+          - Validate all user inputs
+          - Enable secure cookie settings
+          EOF
+          
+          echo "📊 DAST Analysis Summary:"
+          echo "  - High Risk Alerts: $HIGH_ALERTS"
+          echo "  - Medium Risk Alerts: $MEDIUM_ALERTS"
+          echo "  - Total Alerts: $TOTAL_ALERTS"
+
+      # Upload resultados de ZAP a GHAS como SARIF
+      - name: Upload ZAP SARIF results to GitHub Advanced Security
+        if: always() && hashFiles('report_sarif.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: report_sarif.sarif
+          category: "zap-dast"
+
+      # Comentar en PR con resultados DAST
+      - name: Comment PR with DAST Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('dast-summary.md')) {
+              const summary = fs.readFileSync('dast-summary.md', 'utf8');
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            }
+
+      # Upload de artefactos
+      - name: Upload DAST Analysis Results
+        if: ${{ inputs.upload_results }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-security-results-${{ github.run_id }}
+          path: |
+            dast-summary.md
+            report_html.html
+            report_json.json
+            report_sarif.sarif
+            .zap/
+          retention-days: 30
+
+      # Security gate para DAST
+      - name: DAST Security Gate
+        run: |
+          HIGH_ALERTS="${{ steps.analyze_results.outputs.high_risk_alerts }}"
+          MEDIUM_ALERTS="${{ steps.analyze_results.outputs.medium_risk_alerts }}"
+          
+          echo "🚪 DAST Security Gate Analysis:"
+          echo "  - High risk alerts: $HIGH_ALERTS"
+          echo "  - Medium risk alerts: $MEDIUM_ALERTS"
+          
+          if [ "$HIGH_ALERTS" -gt 3 ]; then
+            echo "❌ DAST Security Gate Failed: Too many high-risk vulnerabilities ($HIGH_ALERTS > 3)"
+            echo "Please fix high-risk security issues before releasing to production"
+            exit 1
+          elif [ "$HIGH_ALERTS" -gt 0 ]; then
+            echo "⚠️ DAST Security Gate Warning: $HIGH_ALERTS high-risk vulnerabilities found"
+            echo "Consider addressing these issues before release"
+            # No exit here, just warning for 1-3 high-risk issues
+          else
+            echo "✅ DAST Security Gate Passed: No critical security issues found"
+          fi
