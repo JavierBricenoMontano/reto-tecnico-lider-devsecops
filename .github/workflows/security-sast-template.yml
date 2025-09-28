@@ -12,10 +12,6 @@ on:
         required: false
         type: string
         default: "javascript"
-      config_file_path:
-        description: "Ruta personalizada del archivo de configuración CodeQL"
-        required: false
-        type: string
       upload_results:
         description: "Subir resultados como artefactos"
         required: false
@@ -63,15 +59,12 @@ jobs:
         run: |
           npm ci --only=production
 
-      # Inicializar CodeQL para JavaScript/Node.js
+      # Inicializar CodeQL para JavaScript/Node.js con configuración por defecto
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: javascript
-          # Usar configuración por defecto inicialmente
-          # config-file: ${{ inputs.config_file_path && format('{0}', inputs.config_file_path) || '.github/codeql/codeql-config.yml' }}
-          # Configuración específica para repositorios públicos
-          tools: latest
+          # Usando configuración por defecto de CodeQL - más estable y efectiva
           
       # Build automático (para lenguajes compilados)
       - name: Autobuild
