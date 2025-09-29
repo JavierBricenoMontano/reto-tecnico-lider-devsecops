@@ -49,7 +49,7 @@ main (producción)
 
 - **Herramienta**: OWASP ZAP
 - **Activación**: Solo en PRs hacia branch `release`
-- **Target**: http://74.179.229.101/ (configurable)
+- **Target**: http://7172.212.29.42/ (configurable)
 - **Tipos de Scan**: Baseline, Full, API
 - **Integración**: Resultados automáticos en PR comments
 

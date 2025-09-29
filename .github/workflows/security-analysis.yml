@@ -191,7 +191,7 @@ jobs:
     if: needs.setup.outputs.should_run_dast == 'true'
     uses: ./.github/workflows/security-dast-template.yml
     with:
-      target_url: ${{ vars.TARGET_URL || 'http://74.179.229.101/' }}
+      target_url: ${{ vars.TARGET_URL || 'http://7172.212.29.42/' }}
       scan_type: "baseline"
       timeout: "10"
       upload_results: true
@@ -248,7 +248,7 @@ jobs:
           if [ "${{ needs.dast_analysis.result }}" != "skipped" ]; then
             echo "## 🌐 DAST Analysis Results" >> security-final-summary.md
             echo "- **Status:** ${{ needs.dast_analysis.result }}" >> security-final-summary.md
-            echo "- **Target URL:** ${{ vars.TARGET_URL || 'http://74.179.229.101/' }}" >> security-final-summary.md
+            echo "- **Target URL:** ${{ vars.TARGET_URL || 'http://7172.212.29.42/' }}" >> security-final-summary.md
             if [ "${{ needs.dast_analysis.result }}" = "success" ]; then
               echo "- **High Risk Alerts:** ${{ needs.dast_analysis.outputs.high_risk_alerts }}" >> security-final-summary.md
               echo "- **Medium Risk Alerts:** ${{ needs.dast_analysis.outputs.medium_risk_alerts }}" >> security-final-summary.md
