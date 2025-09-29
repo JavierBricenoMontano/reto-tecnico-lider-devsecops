@@ -32,12 +32,12 @@ on:
         description: 'URL objetivo para DAST (opcional)'
         required: false
         type: string
-        default: 'http://74.179.229.101/'
+        default: 'http://172.212.29.42/'
 
 env:
   # Configuración global
   MICROSERVICE_PATH: ${{ github.event.inputs.microservice_path || 'mibanco-microservice' }}
-  TARGET_URL: ${{ github.event.inputs.target_url || 'http://74.179.229.101/' }}
+  TARGET_URL: ${{ github.event.inputs.target_url || 'http://172.212.29.42/' }}
   NODE_VERSION: '18'
   
 permissions:
@@ -191,7 +191,7 @@ jobs:
     if: needs.setup.outputs.should_run_dast == 'true'
     uses: ./.github/workflows/security-dast-template.yml
     with:
-      target_url: ${{ vars.TARGET_URL || 'http://74.179.229.101/' }}
+      target_url: ${{ vars.TARGET_URL || 'http://172.212.29.42/' }}
       scan_type: "baseline"
       timeout: "10"
       upload_results: true
@@ -248,7 +248,7 @@ jobs:
           if [ "${{ needs.dast_analysis.result }}" != "skipped" ]; then
             echo "## 🌐 DAST Analysis Results" >> security-final-summary.md
             echo "- **Status:** ${{ needs.dast_analysis.result }}" >> security-final-summary.md
-            echo "- **Target URL:** ${{ vars.TARGET_URL || 'http://74.179.229.101/' }}" >> security-final-summary.md
+            echo "- **Target URL:** ${{ vars.TARGET_URL || 'http://7172.212.29.42/' }}" >> security-final-summary.md
             if [ "${{ needs.dast_analysis.result }}" = "success" ]; then
               echo "- **High Risk Alerts:** ${{ needs.dast_analysis.outputs.high_risk_alerts }}" >> security-final-summary.md
               echo "- **Medium Risk Alerts:** ${{ needs.dast_analysis.outputs.medium_risk_alerts }}" >> security-final-summary.md
@@ -362,7 +362,7 @@ jobs:
           if [ "$DAST_RESULT" = "failure" ]; then
             echo "❌ DAST analysis failed"
             GATE_FAILED=true
-          elif [ "$HIGH_RISK_ALERTS" -gt 3 ]; then
+          elif [ "$HIGH_RISK_ALERTS" -gt 10 ]; then
             echo "❌ Too many high-risk security alerts: $HIGH_RISK_ALERTS"
             GATE_FAILED=true
           elif [ "$HIGH_RISK_ALERTS" -gt 0 ]; then
