@@ -32,12 +32,12 @@ on:
         description: 'URL objetivo para DAST (opcional)'
         required: false
         type: string
-        default: 'http://74.179.229.101/'
+        default: 'http://172.212.29.42/'
 
 env:
   # Configuración global
   MICROSERVICE_PATH: ${{ github.event.inputs.microservice_path || 'mibanco-microservice' }}
-  TARGET_URL: ${{ github.event.inputs.target_url || 'http://74.179.229.101/' }}
+  TARGET_URL: ${{ github.event.inputs.target_url || 'http://172.212.29.42/' }}
   NODE_VERSION: '18'
   
 permissions:
