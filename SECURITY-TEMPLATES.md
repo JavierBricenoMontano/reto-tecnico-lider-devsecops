@@ -276,3 +276,5 @@ Las plantillas se actualizan regularmente para:
 
 _Última actualización: Septiembre 2025_
 _Versión de plantillas: v1.0_
+
+
